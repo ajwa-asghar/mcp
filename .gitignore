@@ -2,3 +2,5 @@ __pycache__/
 *.pyc
 .env
 demo/recording*.mp4
+.venv/
+*.log
