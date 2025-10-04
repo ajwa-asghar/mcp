@@ -1,0 +1,117 @@
+#!/usr/bin/env python3
+"""
+Gemini CLI wrapper for MCP integration
+This simulates the official Gemini CLI behavior for MCP commands
+"""
+import json
+import subprocess
+import sys
+import os
+
+def run_mcp_server_command(method, params):
+    """Run command through MCP server"""
+    request = {
+        "id": 1,
+        "method": method,
+        "params": params
+    }
+    
+    try:
+        # Get the MCP server path from config
+        config_path = os.path.expanduser("~/.mcp/config.json")
+        if not os.path.exists(config_path):
+            print("Error: ~/.mcp/config.json not found")
+            return None
+            
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+            
+        client_config = config.get("clients", {}).get("fastapi-mcp", {})
+        if not client_config:
+            print("Error: fastapi-mcp client not found in config")
+            return None
+            
+        cwd = client_config.get("cwd")
+        command = client_config.get("command", "python3")
+        args = client_config.get("args", ["mcp_server.py"])
+        
+        # Run the MCP server
+        process = subprocess.Popen(
+            [command] + args,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            cwd=cwd
+        )
+        
+        stdout, stderr = process.communicate(input=json.dumps(request))
+        
+        if stderr:
+            print(f"Error: {stderr}")
+            return None
+            
+        # Parse response
+        lines = stdout.strip().split('\n')
+        for line in lines:
+            if line.startswith('{'):
+                try:
+                    response = json.loads(line)
+                    return response
+                except json.JSONDecodeError:
+                    continue
+        return None
+        
+    except Exception as e:
+        print(f"Error: {e}")
+        return None
+
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: gemini <command>")
+        print("Commands:")
+        print("  mcp list")
+        print("  mcp call <server> <method> <params>")
+        return
+    
+    if sys.argv[1] == "mcp":
+        if len(sys.argv) < 3:
+            print("Usage: gemini mcp <subcommand>")
+            return
+            
+        subcommand = sys.argv[2]
+        
+        if subcommand == "list":
+            print("fastapi-mcp")
+            
+        elif subcommand == "call" and len(sys.argv) >= 5:
+            server = sys.argv[3]
+            method = sys.argv[4]
+            params_str = sys.argv[5] if len(sys.argv) > 5 else "{}"
+            
+            try:
+                params = json.loads(params_str)
+            except json.JSONDecodeError:
+                print(f"Error: Invalid JSON params: {params_str}")
+                return
+                
+            if server == "fastapi-mcp":
+                response = run_mcp_server_command(method, params)
+                if response:
+                    if "result" in response:
+                        print(json.dumps(response["result"]))
+                    elif "error" in response:
+                        print(f"Error: {response['error']}")
+                    else:
+                        print(json.dumps(response))
+                else:
+                    print("Failed to execute MCP command")
+            else:
+                print(f"Error: Unknown server: {server}")
+        else:
+            print("Usage: gemini mcp call <server> <method> <params>")
+    else:
+        print("Unknown command. Use 'gemini mcp list' or 'gemini mcp call'")
+
+if __name__ == "__main__":
+    main()
